@@ -271,6 +271,12 @@
       -    '89+/'.
        01  asc3                           pic x(3).
        01  temp3                          pic x(3).
+     *
+     * WARNING! 1140 is italian language with EURO codepage
+     *          replace 1140 with the standard codepage for
+     *          your installation. USA used to be 437 
+     *          (if my memory serves me well!) 
+     *
        77  EBCDIC-CCSID                   PIC 9(4) BINARY VALUE 1140.
        77  ASCII-CCSID                    PIC 9(4) BINARY VALUE 819.
        77  num-byte-zd                    PIC 9(8).
@@ -867,7 +873,7 @@ test***     display '<<< ' buf(1:nbyte).
             Perform Read-Message       thru   Read-Message-Exit.
       *     display 'smtp host says ' buf
             if buf(1:1) not equal '2'
-               display 'risposta MAIL FROM: ' buf
+               display 'reply to MAIL FROM: ' buf
                move 55 to failure
                move -1 to retcode
                Perform Return-Code-Check thru Return-Code-Exit
@@ -907,7 +913,7 @@ test***     display '<<< ' buf(1:nbyte).
                   Perform Read-Message thru   Read-Message-Exit
       *           display 'smtp host says ' buf
                   if buf(1:1) not equal '2'
-                     display 'risposta RCPT TO: ' buf
+                     display 'reply to RCPT TO: ' buf
                      move 55 to failure
                      move -1 to retcode
                      Perform Return-Code-Check thru Return-Code-Exit
@@ -924,7 +930,7 @@ test***     display '<<< ' buf(1:nbyte).
             Perform Read-Message       thru   Read-Message-Exit.
       *     display 'smtp host says ' buf
             if buf(1:1) not equal '3'
-               display 'risposta DATA: ' buf
+               display 'reply to DATA: ' buf
                move 55 to failure
                move -1 to retcode
                Perform Return-Code-Check thru Return-Code-Exit
