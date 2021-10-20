@@ -1,9 +1,9 @@
       *****************************************************************
       *                                                               *
       *   Losely based on IBM sample EZA6SOPC (changed to IPV4)       *
-      *   This subroutine allocates a socket on the server it receives*
-      *   from caller then sends an e-mail (body and recipients also  *
-      *   passed from caller). Then it deallocates the socket and     *
+      *   This subroutine allocates a socket on the address passed by *
+      *   caller then sends an e-mail (body and recipients also       *
+      *   passed by caller). Then it deallocates the socket and       *
       *   returns to caller                                           *
       *                                                               *
       * EZA6SOPC Copyright: Licensed Materials - Property of IBM      *
@@ -11,7 +11,7 @@
       * impress one's bosses!)                                        *
       *                                                               *
       * SHOULD work in CICS as well as batch - but when I last tried  *
-      * I had some strange S0C4 in CICS. That was over 10 ago, though.
+      * I had some strange S0C4 in CICS. That was over 10 ago, though.*
       *                                                               *
       *****************************************************************
 
@@ -277,23 +277,57 @@
      *
        Linkage Section.
      *
-       copy ge026scd.
+       copy cpysmtpc.
       *01  param.
+      *        
       *    05  ipv4-address               pic x(15).
+      *    mandatory: dotted i.p address i.e. 192.168.000.001 
+      *
       *    05  port                       pic 9(03).
+      *    mandatory: usually 021
+      *    
       *    05  helo                       pic x(40).
+      *    can be empty
+      *        string presented to SMTP server on HELO command
+      *        default COBSMTPC if <= spaces                             
+      *        you may want to pass the name of the calling program
+      *        
       *    05  sender                     pic x(60).
+      *    mandatory: a valid address the SMTP server will accept
+      *    in doubt ask your mail administrator
+      *    
       *    05  recipients.
       *        10  recipient occurs 10    pic x(60).
+      *    mandatory: at least one! 
+      *    can be "plain" i.e. wylecoyote@acme.com
+      *    or "fancy" i.e. Wile E. Coyote <wylecoyote@acme.com>
+      *    
       *    05  carbon-copy.
       *        10  cc        occurs 10    pic x(60).
+      *    can be empty. same format as recipients
+      *    
       *    05  html                       pic x(01).
+      *    can be empty. if set to '1' you can use HTML in the mail body
+      *    
       *    05  subject                    pic x(80).
+      *    mandatory. whatever you like. be polite and professional
+      *    
       *    05  rc-client                   pic 9(02).
+      *    output - caller should test for 0 - anything else means trouble
+      *    should be the last parameter but we've got an ODO....
+      *    
       *    05  num-rows                  pic 9(04) binary.
+      *    mandatory anything from 1 to 32767.
+      *    HOWEVER it MUST be the amount of rows in the following ODO
+      *    Otherwise this routine will be roaming in the storage of the caller
+      *    or even further, if you know what I mean.
+      *    WHICH is far from ideal - my humble two cents.
+      
       *    05  txt-msg.
       *        10  msg-row               pic x(128)
       *            occurs 500 depending on num-rows.
+      *    mandatory, at least 1 occurrence. row can be longer if needed        
+      *            
       *=============================================*
       *= attachments area - picture is meaningless =*
       *=============================================*
@@ -316,7 +350,85 @@
            03 Content-area.
               05 content-byte             pic x
                    occurs 2000000 depending on Content-num-bytes.
-
+      *=============================================*
+      *= what's inside the attachment areas        =*
+      *=============================================*
+      *    03 Content-Type                pic x(80).
+      *    a valid MIME Content-Type.
+      *    i.e. text/html or application/pdf or whatever. 
+      *    you created the attachment, I reckon you know what it is!
+      *    
+      *    03 Content-name                pic x(80).
+      *    attachment name. like 'booya.txt'
+      *
+      *    03 Content-Transfer-Encode     pic x(01).
+      *    Y/y/1 means you want BASE64 encoding. SHOULD not be necessary
+      *    for text/plain or xml but sometimes SMTP server gets lost if there
+      *    are multiple cr+lf. I suggest you use it, unless it's a tiny text 
+      *    file.
+      *
+      *    03 Translate-to-ASCII          pic x(01).
+      *    if your content is already in ASCII then N 
+      *    if it's some EBCDIC flavor then definitely Y/y/1
+      *
+      *    03 Content-Transfer-Encoding   pic x(80).
+      *    if you asked for base64, then this field will contain "Base64"
+      *    on return.
+      *    if you took care yourself of encoding the content, specifiy the
+      *    encoding you used. i.e. 7bit/Base64/Quoted-Printable            
+      *
+      *    03 Content-row-length          pic 9(04) binary.
+      *    number of bytes before this routine inserts a CRLF (there's no 
+      *    LRECL on PCs)
+      *    for instance, you should insert 132/133 for classic printouts
+      *         or 80 if you're attaching a source
+      *    it will return 76 if you asked for base64
+      *    
+      *    03 Content-num-bytes           pic 9(08) binary.
+      *    length of the content. MUST be precise! Otherwise, again, this 
+      *    routine will roam freely in the caller's storage. And possibly 
+      *    beyond, until you get a S0C4
+      *    
+      *    03 Content-area.
+      *       05 content-byte             pic x
+      *          occurs 2000000 depending on Content-num-bytes.
+      *    your attachment. 
+      *    note for rooks: since this is an ODO (occurs depending on)
+      *    the 2 millions are totaly meaningless - it's the
+      *    previous field that defines how many bytes will be attached.
+      *    I could have written any number.
+      *    please note: since CoBOL does not allow programmers to loop 
+      *    through linkage section items, if you need more than 5 attachments
+      *    you need to define futher areas in linkage section and process
+      *    them individually (see below)
+      *    I would have gone for an occurs depending on, but since there's 
+      *    one already that's a no-no.
+      *    If you wish, you may go for an array of pointers and loop through
+      *    the array, like:
+      * 01  Array-of-pointers.
+      *     03 number-of-pointers         pic 9(4) binary. 
+      *     03 attach-pointer        usage is pointer 
+      *        occurs 1 depending on number-of-pointers.
+      *        
+      *     if number-of-pointers greater 1
+      *        perform varying your-index from 1 by 1
+      *          until your-index greater number-of-pointers
+      *          set address of attachment-ds to attach-pointer(your-index)
+      *          perform send-attachment thru ex-send-attachment
+      *        end perform
+      *     end-if.
+      *
+      *     The reason why I did not use pointers is....(old) cobol programmers
+      *     are somewhat allergic to pointers. I've tried many times to explain
+      *     that they are not evil/wizardry/magic - with little success.
+      *     So for the sake of maintenance I didn't go for them.
+      *     
+      *     If you like the idea but you're not sure how, in the caller when
+      *     you want to add an attachment:
+      *     add 1 to number-of-pointers
+      *     set attach-pointer(number-of-pointers) to address of your-attachment
+      *     
+      *
       *=============================================*
        Procedure Division using param-COBSMTPC
                                 attachment1
@@ -334,6 +446,7 @@
             Perform Presentation-To-Numeric
                thru Presentation-To-Numeric-Exit
             Perform CONNECT-Socket      thru   CONNECT-Socket-Exit
+      *     Perform FCNTL               thru   FCNTL-Exit.            
             Perform Numeric-TO-Presentation
                thru Numeric-To-Presentation-Exit
       *
@@ -433,9 +546,9 @@
        Connect-Socket-Exit.
            Exit.
 
-      *---------------------------------------------------------------*
-      * FCNTL - imposta socket a nonblocking (solo x uso in xped)     *
-      *---------------------------------------------------------------*
+      *------------------------------------------------------------------*
+      * FCNTL - sets the socket to nonblocking (for debug under xpediter)*
+      *------------------------------------------------------------------*
        FCNTL-Socket.
             Move zeros to errno retcode.
             move soket-fcntl to ezaerror-function.
@@ -485,8 +598,8 @@
               service-name service-name-len
               name-info-flags
               errno retcode.
-           Display 'Host name = ' host-name.
-           Display 'Service = ' service-name.
+TEST***    Display 'Host name = ' host-name.
+TEST***    Display 'Service = ' service-name.
            Move 'Getaddrinfo call failed' to ezaerror-text.
            If retcode < 0
                move 24 to failure
@@ -773,7 +886,7 @@ test***     display '<<< ' buf(1:nbyte).
                   Perform Read-Message  thru   Read-Message-Exit
       *           display 'smtp host says ' buf
                   if buf(1:1) not equal '2'
-                     display 'risposta RCPT TO: ' buf
+                     display 'answer to RCPT TO: ' buf
                      move 55 to failure
                      move -1 to retcode
                      Perform Return-Code-Check thru Return-Code-Exit
@@ -956,7 +1069,7 @@ test***     display '<<< ' buf(1:nbyte).
             Perform Read-Message       thru   Read-Message-Exit.
       *
       *     there should be no answer to quit 
-      *     if it's there, we kindly ignore it
+      *     if it's there, we kindly ignore it assuming everything was good
       *
        compose-email-Exit.
            Exit.
@@ -1172,11 +1285,6 @@ test***     display '<<< ' buf(1:nbyte).
                   move base64-bits(13:6) to bits(3:6)
                   perform encode thru ex-encode
                end-if
-160219***      subtract 2 from i64
-160219***      move '=' to  b64-char(i64)
-160219***      add 1 to i64
-160219***      move '=' to  b64-char(i64)
-160219***      add 1 to i64
            end-if.
        ex-base64.
            Exit.
